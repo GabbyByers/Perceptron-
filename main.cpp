@@ -18,6 +18,10 @@ public:
 	vector<unsigned char> images;
 	vector<unsigned char> labels;
 
+	vector<sf::Image> sfml_images;
+	sf::Font font;
+	sf::Text text;
+
 	mnist_database()
 	{
 		ifstream image_file;
@@ -58,6 +62,34 @@ public:
 
 		image_file.close();
 		label_file.close();
+		draw_setup();
+	}
+
+	void draw_setup()
+	{
+		sfml_images.clear();
+		for (int im = 0; im < num_labels; im++)
+		{
+			sf::Image image;
+			image.create(28, 28, sf::Color::Black);
+
+			for (int i = 0; i < 28; i++)
+			{
+				for (int j = 0; j < 28; j++)
+				{
+					int color = images[(im * 784) + (i * 28) + j];
+					image.setPixel(j, i, sf::Color(color, color, color));
+				}
+			}
+
+			sfml_images.push_back(image);
+		}
+
+		font.loadFromFile("TimesNewRoman.ttf");
+		text.setFont(font);
+		text.setPosition(50, 50 + 112);
+		text.setCharacterSize(20);
+		text.setFillColor(sf::Color::White);
 	}
 
 	void draw_image(sf::RenderWindow& window, int image_index)
@@ -67,29 +99,14 @@ public:
 		float y = 50.0f;
 
 		// digit
-		sf::Vertex* pixels = new sf::Vertex[784];
-		for (int i = 0; i < 28; i++)
-		{
-			for (int j = 0; j < 28; j++)
-			{
-				int index = (image_index * 784) + (i * 28) + j;
-				int color = images[index];
-				pixels[i * 28 + j] = sf::Vertex(sf::Vector2f(x + (j * scale), y + (i * scale)), sf::Color(color, color, color));
-			}
-		}
-
-		sf::Transform transform;
-		for (int i = 0; i < scale; i++)
-		{
-			for (int j = 0; j < scale; j++)
-			{
-				transform = sf::Transform();
-				transform.translate(i, j);
-				window.draw(pixels, 784, sf::Points, transform);
-			}
-		}
-
-		delete[] pixels;
+		sf::Image& image = sfml_images[image_index];\
+		sf::Texture texture;
+		texture.loadFromImage(image);\
+		sf::Sprite sprite;
+		sprite.setTexture(texture);\
+		sprite.setPosition(x, y);
+		sprite.setScale(scale, scale);\
+		window.draw(sprite);
 
 		// bounding box
 		sf::Vertex box[5] =
@@ -100,19 +117,10 @@ public:
 			sf::Vertex(sf::Vector2f(x, y + scale * 28), sf::Color::White),
 			sf::Vertex(sf::Vector2f(x, y), sf::Color::White)
 		};
-
 		window.draw(box, 5, sf::LinesStrip);
 
 		// text
-		sf::Font font;
-		font.loadFromFile("TimesNewRoman.ttf");
-
-		sf::Text text;
-		text.setFont(font);
 		text.setString("Value: " + to_string(labels[image_index]));
-		text.setPosition(x, y + scale * 28);
-		text.setCharacterSize(20);
-		text.setFillColor(sf::Color::White);
 		window.draw(text);
 	}
 };
@@ -230,6 +238,8 @@ public:
 				}
 			}
 		}
+
+		draw_setup();
 	}
 
 	~neural_network() {}
@@ -244,85 +254,100 @@ public:
 		return layers[index];
 	}
 
+	void propagate(int image_index)
+	{
+		layer& input_layer = layers[0];
+		for (int i = 0; i < 28; i++)
+		{
+			for (int j = 0; j < 28; j++)
+			{
+				float brightness = mnist_database.images[(image_index * 784) + (i * 28) + j] / 255.0f;
+				input_layer[(i * 28) + j].activation = brightness;
+			}
+		}
+	}
+
+	vector<sf::Vertex> quads;
+	vector<sf::Vertex> boxes;
+
+	void draw_setup()
+	{
+		for (layer& layer : layers)
+		{
+			for (neuron& neuron : layer.neurons)
+			{
+				if (layer.index == 0)
+				{
+					if (neuron.index == 28)
+					{
+						break;
+					}
+				}
+
+				int color = neuron.activation * 255;
+				float x = layer.index * 200 + 212;
+				float y = neuron.index * 20 + 50;
+
+				if (layer.index == 1) { y += 6 * 20; }
+				if (layer.index == 2) { y += 6 * 20; }
+				if (layer.index == 3) { y += 9 * 20; }
+
+				quads.push_back(sf::Vertex(sf::Vector2f(x, y),           sf::Color(100, 100, 100)));
+				quads.push_back(sf::Vertex(sf::Vector2f(x + 10, y),      sf::Color(100, 100, 100)));
+				quads.push_back(sf::Vertex(sf::Vector2f(x + 10, y + 10), sf::Color(100, 100, 100)));
+				quads.push_back(sf::Vertex(sf::Vector2f(x, y + 10),      sf::Color(100, 100, 100)));
+
+				boxes.push_back(sf::Vertex(sf::Vector2f(x, y),           sf::Color::White));
+				boxes.push_back(sf::Vertex(sf::Vector2f(x + 10, y),      sf::Color::White));
+				boxes.push_back(sf::Vertex(sf::Vector2f(x + 10, y),      sf::Color::White));
+				boxes.push_back(sf::Vertex(sf::Vector2f(x + 10, y + 10), sf::Color::White));
+				boxes.push_back(sf::Vertex(sf::Vector2f(x + 10, y + 10), sf::Color::White));
+				boxes.push_back(sf::Vertex(sf::Vector2f(x, y + 10),      sf::Color::White));
+				boxes.push_back(sf::Vertex(sf::Vector2f(x, y + 10),      sf::Color::White));
+				boxes.push_back(sf::Vertex(sf::Vector2f(x, y),           sf::Color::White));
+			}
+		}
+	}
+
 	void draw(sf::RenderWindow& window, int index)
 	{
 		mnist_database.draw_image(window, index);
 
+		propagate(index);
 
-		float x = 212.0f;
-		float y = 50.0f;
-		float size = 20.0f;
-
-		vector<sf::Vertex> neuron_solid;
-		for (int l = 0; l < 4; l++)
+		layer& input_layer = layers[0];
+		for (int i = 0; i < 28; i++)
 		{
-			for (int n = 0; n < 16; n++)
+			int color = input_layer[(i * 28) + i].activation * 255;
+			for (int j = 0; j < 4; j++)
 			{
-				if (l == 0)
-				{
-					if (n == 7) { continue; }
-					if (n == 8) { continue; }
-				}
-				if (l == 3)
-				{
-					if (n == 0) { continue; }
-					if (n == 1) { continue; }
-					if (n == 2) { continue; }
-					if (n == 13) { continue; }
-					if (n == 14) { continue; }
-					if (n == 15) { continue; }
-				}
-				int color = 100; //int color = 255 * layers[l][n].activation;
-				float x0 = x + 10 * l * size;
-				float y0 = y + 2 * n * size;
-				neuron_solid.push_back(sf::Vertex(sf::Vector2f(x0, y0), sf::Color(color, color, color)));
-				neuron_solid.push_back(sf::Vertex(sf::Vector2f(x0 + size, y0), sf::Color(color, color, color)));
-				neuron_solid.push_back(sf::Vertex(sf::Vector2f(x0 + size, y0 + size), sf::Color(color, color, color)));
-				neuron_solid.push_back(sf::Vertex(sf::Vector2f(x0, y0 + size), sf::Color(color, color, color)));
+				quads[(i * 4) + j].color = sf::Color(color, color, color);
 			}
 		}
 
-		vector<sf::Vertex> neuron_box;
-		for (int l = 0; l < 4; l++)
-		{
-			for (int n = 0; n < 16; n++)
-			{
-				if (l == 0)
-				{
-					if (n == 7) { continue; }
-					if (n == 8) { continue; }
-				}
-				if (l == 3)
-				{
-					if (n == 0) { continue; }
-					if (n == 1) { continue; }
-					if (n == 2) { continue; }
-					if (n == 13) { continue; }
-					if (n == 14) { continue; }
-					if (n == 15) { continue; }
-				}
-				float x0 = x + 10 * l * size;
-				float y0 = y + 2 * n * size;
-				sf::Color color = sf::Color::White;
-				neuron_box.push_back(sf::Vertex(sf::Vector2f(x0, y0), color));
-				neuron_box.push_back(sf::Vertex(sf::Vector2f(x0 + size, y0), color));
-				neuron_box.push_back(sf::Vertex(sf::Vector2f(x0 + size, y0), color));
-				neuron_box.push_back(sf::Vertex(sf::Vector2f(x0 + size, y0 + size), color));
-				neuron_box.push_back(sf::Vertex(sf::Vector2f(x0 + size, y0 + size), color));
-				neuron_box.push_back(sf::Vertex(sf::Vector2f(x0, y0 + size), color));
-				neuron_box.push_back(sf::Vertex(sf::Vector2f(x0, y0 + size), color));
-				neuron_box.push_back(sf::Vertex(sf::Vector2f(x0, y0), color));
-			}
-		}
+		//for (layer& layer : layers)
+		//{
+		//	if (layer.index == 0)
+		//	{
+		//		continue;
+		//	}
+		//	for (neuron& neuron : layer.neurons)
+		//	{
+		//		for (int i = 0; i < 4; i++)
+		//		{
+		//			quads
+		//		}
+		//	}
+		//}
 
-		window.draw(&neuron_solid[0], neuron_solid.size(), sf::Quads);
-		window.draw(&neuron_box[0], neuron_box.size(), sf::Lines);
+		window.draw(&quads[0], quads.size(), sf::Quads);
+		window.draw(&boxes[0], boxes.size(), sf::Lines);
 	}
 };
 
 int main()
 {
-	sf::RenderWindow window(sf::VideoMode(1000, 720), "Hello SFML", sf::Style::Close);
+	sf::RenderWindow window(sf::VideoMode(1000, 650), "Perceptron", sf::Style::Close);
 	sf::Event event;
 	
 	neural_network neural_network;
@@ -344,6 +369,11 @@ int main()
 
 		neural_network.draw(window, index);
 		index++;
+
+		if (index >= 60000)
+		{
+			index = 0;
+		}
 
 		window.display();
 	}
